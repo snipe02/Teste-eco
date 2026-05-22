@@ -3,18 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Ecociclismo | Inscrição Oficial</title>
-    <!-- Tailwind CSS CDN -->
+    <title>Ecociclismo | Inscrição Oficial - Rápido e Seguro</title>
+    <!-- Tailwind + Fonts + Icons + jsPDF -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <!-- Bibliotecas para PDF -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
-    <!-- Import Map para Firebase ES modules -->
+    <!-- CSS custom -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Importmap para Firebase (módulos) -->
     <script type="importmap">
         {
             "imports": {
@@ -24,8 +22,6 @@
             }
         }
     </script>
-    <!-- CSS customizado -->
-    <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -45,7 +41,7 @@
         <div id="loginErrorMsg" class="text-red-600 text-sm mb-3 hidden">E-mail ou senha inválidos!</div>
         <div class="modal-footer">
             <button id="btnCancelarLogin" class="btn btn-gray">Cancelar</button>
-            <button id="btnLoginAdmin" class="btn" style="background:#6c3483;color:#fff">Entrar</button>
+            <button id="btnLoginAdmin" class="btn btn-purple">Entrar</button>
         </div>
     </div>
 </div>
@@ -59,14 +55,13 @@
     <div style="display:flex;align-items:center;gap:12px">
         <span class="eco-badge"><i class="fas fa-gift"></i> Gratuito</span>
         <div id="adminLogoutContainer" style="display:none">
-            <button id="btnSairAdmin" class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff">
+            <button id="btnSairAdmin" class="btn-sm btn-white-transparent">
                 <i class="fas fa-sign-out-alt"></i> Sair Admin
             </button>
         </div>
     </div>
 </header>
 
-<!-- Navegação por abas -->
 <nav class="tab-nav">
     <div class="tab-nav-inner">
         <button class="tab-btn" data-tab="inscricao"><i class="fas fa-user-edit"></i> Inscrição</button>
@@ -75,57 +70,48 @@
     </div>
 </nav>
 
-<!-- Conteúdo principal -->
 <main class="content-area">
-    <!-- Painel: Inscrição -->
     <section id="panel-inscricao" class="panel ativo">
         <div class="card animate-fadeIn">
             <div class="card-header green"><i class="fas fa-user-plus"></i> Nova Inscrição Gratuita</div>
             <div class="card-body">
-                <div class="form-group"><label class="form-label">Nome completo *</label><input type="text" id="nome" class="form-input" placeholder="Digite seu nome"></div>
-                <div class="form-group"><label class="form-label">WhatsApp *</label><input type="tel" id="whatsapp" class="form-input" placeholder="(00) 90000-0000"></div>
-                <div class="form-group"><label class="form-label">Cidade *</label><input type="text" id="cidade" class="form-input" placeholder="Sua cidade"></div>
-                <div class="form-group"><label class="form-label">Equipe (opcional)</label><input type="text" id="equipe" class="form-input" placeholder="Equipe"></div>
-                <div class="form-group"><label class="form-label">Idade *</label><input type="number" id="idade" class="form-input" placeholder="Ex: 28" min="1" max="120"></div>
+                <div class="form-group"><label class="form-label obrigatorio">Nome completo</label><input type="text" id="nome" class="form-input" placeholder="Digite seu nome"></div>
+                <div class="form-group"><label class="form-label obrigatorio">WhatsApp </label><input type="tel" id="whatsapp" class="form-input" placeholder="(00) 90000-0000"></div>
+                <div class="form-group"><label class="form-label obrigatorio">Cidade</label><input type="text" id="cidade" class="form-input" placeholder="Sua cidade"></div>
+                <div class="form-group"><label class="form-label obrigatorio">Equipe (obrigatório)</label><input type="text" id="equipe" class="form-input" placeholder="Ex: Equipe Velozes / Bike Team / Nome da sua equipe"></div>
+                <div class="form-group"><label class="form-label obrigatorio">Idade</label><input type="number" id="idade" class="form-input" placeholder="Ex: 28" min="1" max="120"></div>
                 <div class="form-group">
-                    <label class="form-label">Gênero *</label>
+                    <label class="form-label obrigatorio">Gênero</label>
                     <select id="genero" class="form-input">
+                        <option value="">Selecione...</option>
                         <option value="Masculino">Masculino</option>
                         <option value="Feminino">Feminino</option>
                         <option value="Prefiro não informar">Prefiro não informar</option>
                     </select>
                 </div>
-                <div class="valor-aviso"><i class="fas fa-check-circle"></i> Inscrição 100% gratuita — confirmação imediata</div>
+                <div class="valor-aviso"><i class="fas fa-check-circle"></i> Inscrição 100% gratuita — confirmação imediata. Todos os campos são obrigatórios.</div>
                 <button id="btnGerarInscricao" class="btn btn-orange"><i class="fas fa-ticket-alt"></i> Realizar inscrição gratuita</button>
             </div>
         </div>
     </section>
 
-    <!-- Painel: Confirmação -->
     <section id="panel-confirmado" class="panel">
         <div class="card animate-fadeIn">
             <div class="card-header teal"><i class="fas fa-medal"></i> Inscrição Confirmada</div>
             <div class="card-body" id="confirmadoDinamico">
-                <div style="text-align:center;padding:48px 0;color:#9ca3af">
-                    <i class="fas fa-hourglass-half fa-2x"></i>
-                    <p>Nenhuma inscrição ativa</p>
-                </div>
+                <div style="text-align:center;padding:48px 0;color:#9ca3af"><i class="fas fa-hourglass-half fa-2x"></i><p>Nenhuma inscrição ativa</p></div>
             </div>
         </div>
     </section>
 
-    <!-- Painel: Admin -->
     <section id="panel-admin" class="panel">
         <div class="card animate-fadeIn">
             <div class="card-header purple"><i class="fas fa-database"></i> Banco de Dados — Inscrições (Gratuitas)</div>
-            <div class="card-body" id="adminPanelRoot">
-                <p style="color:#9ca3af;text-align:center;padding:32px 0">Carregando dados...</p>
-            </div>
+            <div class="card-body" id="adminPanelRoot"><p style="color:#9ca3af;text-align:center;padding:32px 0">Carregando dados...</p></div>
         </div>
     </section>
 </main>
 
-<!-- JS principal (módulo) -->
-<script type="module" src="script1.js"></script>
+<script type="module" src="script2.js"></script>
 </body>
 </html>
