@@ -230,7 +230,7 @@ async function mostrarConfirmacao(registro) {
         <div class="confirmed-item"><div class="confirmed-item-label">Cidade</div><div class="confirmed-item-value">${esc(registro.cidade)}</div></div></div>
         <a href="${linkWhats}" target="_blank" class="btn-whatsapp" style="margin-top:12px"><i class="fab fa-whatsapp"></i> Receber número no WhatsApp</a>
         <button id="baixarPdfConfirmadoBtn" class="btn btn-gray" style="margin-top:12px"><i class="fas fa-file-pdf"></i> Baixar comprovante PDF</button>
-        <button id="novaInscricaoBtn" class="btn btn-orange" style="margin-top:12px"><i class="fas fa-plus-circle"></i> Nova inscrição</button>`;
+        <button id="novaInscricaoBtn" class="" style="margin-top:12px"><i class=""></i></button>`;
     document.getElementById('tabConfirmadoBtn').classList.remove('tab-hidden');
     setTimeout(() => {
         document.getElementById('copiarNumero')?.addEventListener('click', () => {
