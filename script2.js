@@ -1,8 +1,8 @@
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, push, set, get, remove, update } from "firebase/database";
+import { getDatabase, ref, push, set, get, remove, update, runTransaction } from "firebase/database";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "firebase/auth";
 
-// ========== CONFIGURAÇÃO DO FIREBASE ==========
+// Configuração do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyBSufzO0XqpLJ042F0Uwx4XYOwQ42-YHAo",
   authDomain: "inscr-d8712.firebaseapp.com",
@@ -13,22 +13,22 @@ const firebaseConfig = {
   appId: "1:776446988108:web:ea8a03286d587abc8bc9e9"
 };
 
-// ========== CONSTANTES GLOBAIS ==========
-const WHATS_ADMIN = "5586995300632";
 const LIMITE_MEDALHA = 350;
 let db, auth, adminLogado = false;
 
-// ========== INICIALIZAÇÃO ==========
+// Inicialização do Firebase
 try {
   const app = initializeApp(firebaseConfig);
   db = getDatabase(app);
   auth = getAuth(app);
+  window.addEventListener('load', () => migrarNumerosAntigos());
 } catch (e) {
   console.error(e);
   alert("Erro ao conectar ao banco.");
 }
 
-// ========== FUNÇÕES AUXILIARES ==========
+// ==================== FUNÇÕES AUXILIARES ====================
+
 function toast(msg, bg = "#1e4a2f") {
   const d = document.createElement("div");
   d.className = "toast-custom";
@@ -49,34 +49,28 @@ function esc(str) {
   }[m]));
 }
 
-function whatsappValido(valor) {
-  return (valor || "").replace(/\D/g, "").length >= 10;
-}
-
 function validarFormulario() {
   let valido = true;
-  const campos = ["nome", "whatsapp", "cidade", "equipe", "idade", "genero"].map(id => document.getElementById(id));
-  campos.forEach(c => c.classList.remove("erro"));
+  const campos = ["nome", "cidade", "equipe", "idade", "genero"].map(id => document.getElementById(id));
+  campos.forEach(c => c?.classList.remove("erro"));
 
   const nome = document.getElementById("nome");
-  const whatsapp = document.getElementById("whatsapp");
   const cidade = document.getElementById("cidade");
   const equipe = document.getElementById("equipe");
   const idade = document.getElementById("idade");
   const genero = document.getElementById("genero");
 
-  if (!nome.value.trim()) { nome.classList.add("erro"); valido = false; }
-  if (!whatsapp.value.trim() || !whatsappValido(whatsapp.value)) { whatsapp.classList.add("erro"); valido = false; }
-  if (!cidade.value.trim()) { cidade.classList.add("erro"); valido = false; }
-  if (!equipe.value.trim()) { equipe.classList.add("erro"); valido = false; }
+  if (!nome?.value.trim()) { nome?.classList.add("erro"); valido = false; }
+  if (!cidade?.value.trim()) { cidade?.classList.add("erro"); valido = false; }
+  if (!equipe?.value.trim()) { equipe?.classList.add("erro"); valido = false; }
 
-  const idadeNum = parseInt(idade.value, 10);
-  if (!idade.value.trim() || isNaN(idadeNum) || idadeNum < 1 || idadeNum > 120) {
-    idade.classList.add("erro");
+  const idadeNum = parseInt(idade?.value, 10);
+  if (!idade?.value.trim() || isNaN(idadeNum) || idadeNum < 1 || idadeNum > 120) {
+    idade?.classList.add("erro");
     valido = false;
   }
 
-  if (!genero.value) { genero.classList.add("erro"); valido = false; }
+  if (!genero?.value) { genero?.classList.add("erro"); valido = false; }
 
   if (!valido) toast("❌ Preencha TODOS os campos obrigatórios!", "#c0392b");
   return valido;
@@ -93,10 +87,79 @@ function irParaTab(tabId) {
   document.querySelectorAll(".tab-btn").forEach(btn => {
     btn.classList.remove("active-inscricao", "active-confirmado", "active-admin");
   });
+
   document.querySelector(`.tab-btn[data-tab="${tabId}"]`)?.classList.add(`active-${tabId}`);
 
   if (tabId === "admin" && adminLogado) carregarAdminUI();
 }
+
+// ==================== GERENCIAMENTO DE NÚMERO FIXO ====================
+
+async function obterProximoNumeroInscricao() {
+  const metaRef = ref(db, "meta/inscricaoCount");
+  try {
+    const result = await runTransaction(metaRef, (current) => {
+      if (current === null) return 1;
+      return current + 1;
+    });
+    if (result.committed) {
+      return result.snapshot.val();
+    } else {
+      throw new Error("Transaction falhou");
+    }
+  } catch (error) {
+    console.error("Erro ao obter próximo número:", error);
+    const snapshot = await get(ref(db, "inscricoes"));
+    const inscricoes = snapshot.val() || {};
+    let max = 0;
+    for (const key in inscricoes) {
+      const num = inscricoes[key].numero;
+      if (typeof num === 'number' && num > max) max = num;
+    }
+    return max + 1;
+  }
+}
+
+async function migrarNumerosAntigos() {
+  const snapshot = await get(ref(db, "inscricoes"));
+  const inscricoes = snapshot.val();
+  if (!inscricoes) return;
+
+  const precisaMigracao = Object.values(inscricoes).some(ins => ins.numero === undefined);
+  if (!precisaMigracao) return;
+
+  toast("🔄 Atualizando números das inscrições existentes...", "#e67e22");
+  
+  const entradas = Object.entries(inscricoes);
+  entradas.sort((a, b) => (a[1].dataCriacao || 0) - (b[1].dataCriacao || 0));
+  
+  let contador = await obterMaiorNumeroExistente() + 1;
+  if (contador === 1) contador = 1;
+  
+  for (let i = 0; i < entradas.length; i++) {
+    const [id, dados] = entradas[i];
+    if (dados.numero === undefined) {
+      await update(ref(db, `inscricoes/${id}`), { numero: i + 1 });
+    }
+  }
+  
+  const maior = await obterMaiorNumeroExistente();
+  await set(ref(db, "meta/inscricaoCount"), maior);
+  toast("✅ Migração concluída! Números fixos atribuídos.", "#15803d");
+}
+
+async function obterMaiorNumeroExistente() {
+  const snapshot = await get(ref(db, "inscricoes"));
+  const inscricoes = snapshot.val() || {};
+  let max = 0;
+  for (const key in inscricoes) {
+    const num = inscricoes[key].numero;
+    if (typeof num === 'number' && num > max) max = num;
+  }
+  return max;
+}
+
+// ==================== FUNÇÕES DO BANCO DE DADOS ====================
 
 async function obterTodasOrdenadas() {
   const snap = await get(ref(db, "inscricoes"));
@@ -106,19 +169,13 @@ async function obterTodasOrdenadas() {
     .sort((a, b) => (a.dataCriacao || 0) - (b.dataCriacao || 0));
 }
 
-async function gerarNumeroInscricaoPorId(id, listaOrdenada = null) {
-  const ordenadas = listaOrdenada || await obterTodasOrdenadas();
-  const idx = ordenadas.findIndex(i => i.id === id);
-  return idx !== -1 ? (idx + 1).toString().padStart(3, "0") : "000";
-}
-
 async function criarInscricaoGratuita(dados) {
   const newRef = push(ref(db, "inscricoes"));
   const now = Date.now();
+  const numero = await obterProximoNumeroInscricao();
 
   const registro = {
     nome: dados.nome.trim(),
-    whatsapp: dados.whatsapp.trim(),
     cidade: dados.cidade.trim(),
     equipe: dados.equipe.trim(),
     idade: Number(dados.idade),
@@ -127,7 +184,8 @@ async function criarInscricaoGratuita(dados) {
     pdfEnviado: false,
     dataCriacao: now,
     dataPagamento: now,
-    codigoInterno: "ECO-" + newRef.key.slice(-6).toUpperCase()
+    codigoInterno: "ECO-" + newRef.key.slice(-6).toUpperCase(),
+    numero: numero
   };
 
   await set(newRef, registro);
@@ -144,26 +202,14 @@ async function marcarComoEnviado(id) {
   await update(ref(db, `inscricoes/${id}`), { pdfEnviado: true });
 }
 
-async function atualizarInscricao(id, nome, equipe, whatsapp) {
+async function atualizarInscricao(id, nome, equipe) {
   await update(ref(db, `inscricoes/${id}`), {
     nome: nome.trim(),
-    equipe: equipe.trim(),
-    whatsapp: whatsapp.trim()
+    equipe: equipe.trim()
   });
 }
 
-function gerarLinkWhatsAppParticipante(reg, numero) {
-  let fone = (reg.whatsapp || "").replace(/\D/g, "");
-  if (fone.startsWith("0")) fone = fone.slice(1);
-  if (!fone.startsWith("55") && fone.length <= 11) fone = "55" + fone;
-
-  const equipeMsg = reg.equipe && reg.equipe.trim() !== "" ? reg.equipe : "Não informada";
-  const medalhaMsg = temMedalha(numero) ? `\n🏅 *Parabéns! Você está entre os primeiros ${LIMITE_MEDALHA} inscritos e ganhará uma MEDALHA especial!*` : "";
-
-  const msg = `✅ *ECOCICLISMO* — 14ª Edição\n\nOlá *${reg.nome}*!\n\nSua inscrição foi confirmada!${medalhaMsg}\n\n🎫 *Número:* #${numero}\n📍 *Cidade:* ${reg.cidade}\n🏷️ *Equipe:* ${equipeMsg}\n📅 *Data:* ${new Date(reg.dataCriacao).toLocaleDateString("pt-BR")}\n\n_Guarde esse número._`;
-
-  return `https://wa.me/${fone}?text=${encodeURIComponent(msg)}`;
-}
+// ==================== FUNÇÕES DE PDF ====================
 
 async function gerarPDFRapido(reg, numeroInscricao) {
   if (typeof window.jspdf === "undefined" || !window.jspdf.jsPDF) {
@@ -178,7 +224,7 @@ async function gerarPDFRapido(reg, numeroInscricao) {
     const marginX = 15;
     const ganhaMedalha = temMedalha(numeroInscricao);
 
-    // Cabeçalho verde
+    // Cabeçalho
     doc.setFillColor(30, 74, 47);
     doc.rect(0, 0, pageWidth, 38, "F");
     doc.setTextColor(255, 255, 255);
@@ -189,7 +235,7 @@ async function gerarPDFRapido(reg, numeroInscricao) {
     doc.setFont("helvetica", "normal");
     doc.text("Comprovante de Inscrição — 14ª Edição • Gratuito", pageWidth / 2, 30, { align: "center" });
 
-    // Bloco número
+    // Número da inscrição
     const boxY = 48;
     doc.setDrawColor(134, 239, 172);
     doc.setFillColor(240, 253, 244);
@@ -202,6 +248,7 @@ async function gerarPDFRapido(reg, numeroInscricao) {
     doc.text(`#${numeroInscricao}`, pageWidth / 2, boxY + 27, { align: "center" });
 
     let afterMedalY = boxY + 42;
+    
     if (ganhaMedalha) {
       const mY = boxY + 40;
       const mH = 52;
@@ -247,11 +294,6 @@ async function gerarPDFRapido(reg, numeroInscricao) {
         [1, 1], "F", true
       );
 
-      doc.setFillColor(255, 255, 200);
-      doc.setGState(doc.GState({ opacity: 0.5 }));
-      doc.ellipse(cx - 2, medalTopY + 19, 3.5, 2, "F");
-      doc.setGState(doc.GState({ opacity: 1 }));
-
       doc.setFillColor(212, 160, 23);
       doc.roundedRect(textX, mY + 5, pageWidth - marginX - textX - 4, 9, 2, 2, "F");
       doc.setFontSize(7.5);
@@ -263,10 +305,12 @@ async function gerarPDFRapido(reg, numeroInscricao) {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(100, 45, 0);
       doc.text("MEDALHA ESPECIAL", textX + 2, mY + 27);
+
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(140, 70, 0);
       doc.text("GARANTIDA!", textX + 2, mY + 36);
+
       doc.setFontSize(7.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(120, 60, 0);
@@ -285,12 +329,11 @@ async function gerarPDFRapido(reg, numeroInscricao) {
       startY: afterMedalY,
       body: [
         ["Nome:", reg.nome],
-        ["WhatsApp:", reg.whatsapp],
         ["Cidade:", reg.cidade],
         ["Equipe:", equipeExib],
         ["Idade:", reg.idade || "—"],
         ["Gênero:", reg.genero],
-        ["Medalha:", ganhaMedalha ? `SIM — Primeiros ${LIMITE_MEDALHA} inscritos` : "Nao elegivel"],
+        ["Medalha:", ganhaMedalha ? `SIM — Primeiros ${LIMITE_MEDALHA} inscritos` : "Não elegível"],
         ["Status:", "CONFIRMADA"],
         ["Data:", new Date(reg.dataCriacao).toLocaleString("pt-BR")]
       ],
@@ -312,33 +355,30 @@ async function gerarPDFRapido(reg, numeroInscricao) {
   }
 }
 
-async function enviarPdfEAbrirWhatsApp(reg, numero, btnEl) {
+async function enviarPdfSemWhats(reg, numero, btnEl) {
   try {
     if (btnEl) {
       btnEl.disabled = true;
       btnEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     }
     await gerarPDFRapido(reg, numero);
-    window.open(gerarLinkWhatsAppParticipante(reg, numero), "_blank");
     await marcarComoEnviado(reg.id);
     if (btnEl) btnEl.disabled = false;
     carregarAdminUI();
-    toast(`✅ Enviado para ${reg.nome}!`, "#15803d");
+    toast(`✅ PDF gerado e marcado como enviado para ${reg.nome}!`, "#15803d");
   } catch (err) {
     toast("Erro: " + err.message, "#c0392b");
     if (btnEl) btnEl.disabled = false;
   }
 }
 
+// ==================== FUNÇÕES DA INTERFACE ====================
+
 async function mostrarConfirmacao(registro) {
-  const todasOrdenadas = await obterTodasOrdenadas();
-  const numero = await gerarNumeroInscricaoPorId(registro.id, todasOrdenadas);
+  const numero = registro.numero;
   const container = document.getElementById("confirmadoDinamico");
   const equipeExib = registro.equipe && registro.equipe.trim() !== "" ? registro.equipe : "Não informada";
   const ganhaMedalha = temMedalha(numero);
-
-  const msgWhats = `✅ *ECOCICLISMO* - Inscrição confirmada!\n\nOlá ${registro.nome}, inscrição realizada.\n🎫 Número: #${numero}\n🏷️ Equipe: ${equipeExib}${ganhaMedalha ? `\n🏅 Parabéns! Você ganhará uma MEDALHA especial (primeiros ${LIMITE_MEDALHA} inscritos)!` : ""}`;
-  const linkWhats = `https://wa.me/${WHATS_ADMIN}?text=${encodeURIComponent(msgWhats)}`;
 
   const medalhaHTML = ganhaMedalha ? `
     <div class="medalha-container">
@@ -356,25 +396,23 @@ async function mostrarConfirmacao(registro) {
     </div>
     ${medalhaHTML}
     <div class="confirmed-numero-box">
-      <div class="confirmed-num-label"><i class="fas fa-hashtag"></i> NÚMERO</div>
-      <div class="confirmed-num">#${esc(numero)}</div>
-      <button id="copiarNumero" class="btn btn-green btn-sm" style="margin-top:10px">Copiar número</button>
+      <div class="confirmed-num-label"><i class="fas fa-hashtag"></i> SEU CÓDIGO COMPLETO</div>
+      <div class="confirmed-num">#${esc(String(numero).padStart(3, '0'))}</div>
+      <button id="copiarNumero" class="btn btn-green btn-sm" style="margin-top:10px">Copiar código</button>
     </div>
     <div class="confirmed-grid">
       <div class="confirmed-item"><div class="confirmed-item-label">Nome</div><div class="confirmed-item-value">${esc(registro.nome)}</div></div>
       <div class="confirmed-item"><div class="confirmed-item-label">Cidade</div><div class="confirmed-item-value">${esc(registro.cidade)}</div></div>
       <div class="confirmed-item"><div class="confirmed-item-label">Equipe</div><div class="confirmed-item-value">${esc(equipeExib)}</div></div>
-      <div class="confirmed-item"><div class="confirmed-item-label">WhatsApp</div><div class="confirmed-item-value">${esc(registro.whatsapp)}</div></div>
     </div>
-    <a href="${linkWhats}" target="_blank" class="btn-whatsapp" style="margin-top:12px"><i class="fab fa-whatsapp"></i> Receber número no WhatsApp</a>
     <button id="baixarPdfConfirmadoBtn" class="btn btn-gray" style="margin-top:12px"><i class="fas fa-file-pdf"></i> Baixar comprovante PDF${ganhaMedalha ? " 🏅" : ""}</button>
   `;
 
   document.getElementById("tabConfirmadoBtn").classList.remove("tab-hidden");
 
   document.getElementById("copiarNumero")?.addEventListener("click", () => {
-    navigator.clipboard.writeText(numero);
-    toast(`Número #${numero} copiado!`, "#27ae60");
+    navigator.clipboard.writeText(String(numero).padStart(3, '0'));
+    toast(`Código #${String(numero).padStart(3, '0')} copiado!`, "#27ae60");
   });
 
   document.getElementById("baixarPdfConfirmadoBtn")?.addEventListener("click", () => gerarPDFRapido(registro, numero));
@@ -388,7 +426,7 @@ async function carregarAdminUI() {
   const todas = await obterTodasOrdenadas();
   const total = todas.length;
   const enviados = todas.filter(i => i.pdfEnviado).length;
-  const comMedalha = Math.min(total, LIMITE_MEDALHA);
+  const comMedalha = todas.filter(i => i.numero && i.numero <= LIMITE_MEDALHA).length;
 
   document.getElementById("adminPanelRoot").innerHTML = `
     <div class="admin-stats">
@@ -400,7 +438,7 @@ async function carregarAdminUI() {
 
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
       <button id="btnPdfCompletoAdmin" class="btn btn-green btn-sm"><i class="fas fa-file-pdf"></i> Relatório Completo</button>
-      <input type="text" id="buscaAdmin" class="admin-search" placeholder="Buscar nome, cidade, equipe ou WhatsApp...">
+      <input type="text" id="buscaAdmin" class="admin-search" placeholder="Buscar nome, cidade ou equipe...">
     </div>
 
     <div class="admin-legenda">
@@ -408,29 +446,32 @@ async function carregarAdminUI() {
       <span class="legenda-item"><span class="legenda-dot verde"></span> Enviado</span>
       <span class="legenda-item"><span class="legenda-dot vermelho"></span> Não enviado</span>
       <span class="legenda-item"><span style="font-size:.75rem">🏅</span> Medalha (primeiros ${LIMITE_MEDALHA})</span>
-      <span>• Botão WhatsApp # → PDF + WhatsApp + marcar</span>
     </div>
 
     <div class="admin-table-wrap">
       <table>
         <thead>
-          <tr><th>#</th><th>Nome</th><th>Cidade</th><th>Equipe</th><th>WhatsApp</th><th>Nº Inscrição</th><th>PDF</th><th>Ações</th></tr>
+          <tr>
+            <th>#</th>
+            <th>Nome</th>
+            <th>Cidade</th>
+            <th>Equipe</th>
+            <th>Código</th>
+            <th>Ações</th>
+          </tr>
         </thead>
         <tbody id="adminTableBody"></tbody>
       </table>
     </div>
   `;
 
-  const numMap = new Map();
-  todas.forEach((item, idx) => numMap.set(item.id, (idx + 1).toString().padStart(3, "0")));
-
-  const render = base => {
+  const render = (base) => {
     const busca = (document.getElementById("buscaAdmin")?.value || "").toLowerCase();
+
     const filtrados = base.filter(i =>
       (i.nome || "").toLowerCase().includes(busca) ||
       (i.cidade || "").toLowerCase().includes(busca) ||
-      (i.equipe || "").toLowerCase().includes(busca) ||
-      (i.whatsapp || "").toLowerCase().includes(busca)
+      (i.equipe || "").toLowerCase().includes(busca)
     );
 
     const tbody = document.getElementById("adminTableBody");
@@ -438,9 +479,9 @@ async function carregarAdminUI() {
 
     tbody.innerHTML = filtrados.map((reg, idx) => {
       const equipeTabela = reg.equipe && reg.equipe.trim() !== "" ? reg.equipe : "—";
-      const whatsappTabela = reg.whatsapp || "—";
-      const numero = numMap.get(reg.id);
-      const medal = temMedalha(numero);
+      const numero = reg.numero;
+      const numFormatado = numero ? String(numero).padStart(3, '0') : '???';
+      const medal = numero && numero <= LIMITE_MEDALHA;
 
       return `
         <tr class="${medal ? "row-medalha" : ""}">
@@ -448,46 +489,30 @@ async function carregarAdminUI() {
           <td><strong>${esc(reg.nome)}</strong>${medal ? ' <span class="badge-medal">🏅 Medalha</span>' : ""}</td>
           <td>${esc(reg.cidade)}</td>
           <td>${esc(equipeTabela)}</td>
-          <td>${esc(whatsappTabela)}</td>
+          <td><span class="badge-numero">#${numFormatado}</span></td>
           <td>
-            <button class="badge-numero-whats acao-whats-enviar" data-id="${reg.id}" title="Gerar PDF + WhatsApp + marcar enviado">
-              <i class="fab fa-whatsapp"></i><span>#${numero}</span>
+            <button class="btn-action btn-pdf acao-pdf" data-id="${reg.id}"><i class="fas fa-file-pdf"></i> PDF</button>
+            <button class="btn-action btn-edit acao-edit"
+              data-id="${reg.id}"
+              data-nome="${esc(reg.nome)}"
+              data-equipe="${esc(equipeTabela)}">
+              <i class="fas fa-pen"></i> Editar
             </button>
-            <span class="num-cell-hint">PDF + WhatsApp</span>
-          </td>
-          <td>
+            <button class="btn-action btn-deletar acao-deletar" data-id="${reg.id}"><i class="fas fa-trash"></i> Excluir</button>
             <button class="btn-action ${reg.pdfEnviado ? "btn-pdf-enviado" : "btn-pdf-nao-enviado"} acao-toggle-pdf"
               data-id="${reg.id}" data-enviado="${reg.pdfEnviado}">
               <i class="fas ${reg.pdfEnviado ? "fa-check-circle" : "fa-times-circle"}"></i>
               ${reg.pdfEnviado ? "Enviado" : "Pendente"}
             </button>
           </td>
-          <td>
-            <button class="btn-action btn-pdf acao-pdf" data-id="${reg.id}"><i class="fas fa-file-pdf"></i> PDF</button>
-            <button class="btn-action btn-edit acao-edit"
-              data-id="${reg.id}"
-              data-nome="${esc(reg.nome)}"
-              data-equipe="${esc(equipeTabela)}"
-              data-whatsapp="${esc(whatsappTabela)}">
-              <i class="fas fa-pen"></i> Editar
-            </button>
-            <button class="btn-action btn-deletar acao-deletar" data-id="${reg.id}"><i class="fas fa-trash"></i> Excluir</button>
-          </td>
         </tr>
       `;
     }).join("");
 
-    document.querySelectorAll(".acao-whats-enviar").forEach(btn => {
-      btn.addEventListener("click", async () => {
-        const reg = filtrados.find(f => f.id === btn.dataset.id);
-        if (reg) await enviarPdfEAbrirWhatsApp(reg, numMap.get(reg.id), btn);
-      });
-    });
-
     document.querySelectorAll(".acao-pdf").forEach(btn => {
       btn.addEventListener("click", async () => {
         const reg = filtrados.find(f => f.id === btn.dataset.id);
-        if (reg) await gerarPDFRapido(reg, numMap.get(reg.id));
+        if (reg) await gerarPDFRapido(reg, reg.numero);
       });
     });
 
@@ -505,6 +530,7 @@ async function carregarAdminUI() {
       btn.addEventListener("click", async () => {
         const id = btn.dataset.id;
         const estadoAtual = btn.dataset.enviado === "true";
+
         try {
           btn.disabled = true;
           const novo = await togglePdfEnviado(id, estadoAtual);
@@ -522,20 +548,18 @@ async function carregarAdminUI() {
         document.getElementById("editId").value = btn.dataset.id;
         document.getElementById("editNome").value = btn.dataset.nome;
         document.getElementById("editEquipe").value = btn.dataset.equipe === "—" ? "" : btn.dataset.equipe;
-        document.getElementById("editWhatsapp").value = btn.dataset.whatsapp === "—" ? "" : btn.dataset.whatsapp;
         document.getElementById("modalEdit").classList.remove("hidden");
       });
     });
   };
 
   render(todas);
-
   document.getElementById("buscaAdmin")?.addEventListener("input", () => render(todas));
 
-  // Relatório completo
   document.getElementById("btnPdfCompletoAdmin")?.addEventListener("click", async () => {
     const { jsPDF } = window.jspdf;
     const todasRel = await obterTodasOrdenadas();
+
     if (!todasRel.length) {
       toast("Nenhuma inscrição para gerar relatório.", "#c0392b");
       return;
@@ -557,7 +581,7 @@ async function carregarAdminUI() {
 
     const total = todasRel.length;
     const enviados = todasRel.filter(i => i.pdfEnviado).length;
-    const medalhistas = todasRel.filter((_, idx) => (idx + 1) <= LIMITE_MEDALHA).length;
+    const medalhistas = todasRel.filter(i => i.numero && i.numero <= LIMITE_MEDALHA).length;
     const pendentes = total - enviados;
 
     const statsY = 38;
@@ -572,18 +596,23 @@ async function carregarAdminUI() {
     doc.text(`🏅 Medalhistas (≤ ${LIMITE_MEDALHA}): ${medalhistas}`, pageWidth - 70, statsY + 8);
     doc.text(`📅 Gerado em: ${dataAtual}`, pageWidth - 70, statsY + 24);
 
-    const rows = todasRel.map((r, i) => {
-      const num = (i + 1).toString().padStart(3, "0");
-      const isMedal = (i + 1) <= LIMITE_MEDALHA;
-      const medalText = isMedal ? "🏅 Sim" : "—";
+    const rows = todasRel.map(r => {
+      const num = r.numero ? String(r.numero).padStart(3, '0') : '???';
+      const medal = (r.numero && r.numero <= LIMITE_MEDALHA) ? "Sim" : "Não";
       return [
-        num, r.nome, r.cidade, r.whatsapp, r.equipe || "—",
-        r.idade || "—", r.genero || "—", medalText, r.pdfEnviado ? "Enviado" : "Pendente"
+        num,
+        r.nome,
+        r.cidade,
+        r.equipe || "—",
+        r.idade || "—",
+        r.genero || "—",
+        medal,
+        r.pdfEnviado ? "Enviado" : "Pendente"
       ];
     });
 
     doc.autoTable({
-      head: [["Nº", "Nome", "Cidade", "WhatsApp", "Equipe", "Idade", "Gênero", `Medalha (≤${LIMITE_MEDALHA})`, "PDF"]],
+      head: [["Nº", "Nome", "Cidade", "Equipe", "Idade", "Gênero", `Medalha (≤${LIMITE_MEDALHA})`, "PDF"]],
       body: rows,
       startY: statsY + 38,
       margin: { left: 14, right: 14 },
@@ -591,20 +620,20 @@ async function carregarAdminUI() {
       headStyles: { fillColor: [30, 74, 47], textColor: [255, 255, 255], fontStyle: "bold", fontSize: 7 },
       alternateRowStyles: { fillColor: [249, 250, 251] },
       columnStyles: {
-        0: { cellWidth: 12, halign: "center" },
-        1: { cellWidth: 45 },
+        0: { cellWidth: 16, halign: "center" },
+        1: { cellWidth: 50 },
         2: { cellWidth: 35 },
-        3: { cellWidth: 35 },
-        4: { cellWidth: 40 },
-        5: { cellWidth: 16, halign: "center" },
-        6: { cellWidth: 25 },
-        7: { cellWidth: 28, halign: "center" },
-        8: { cellWidth: 22, halign: "center" }
+        3: { cellWidth: 40 },
+        4: { cellWidth: 16, halign: "center" },
+        5: { cellWidth: 25 },
+        6: { cellWidth: 28, halign: "center" },
+        7: { cellWidth: 22, halign: "center" }
       },
       didParseCell: function(data) {
         if (data.section === "body") {
-          const num = parseInt(data.row.raw[0], 10);
-          if (num <= LIMITE_MEDALHA) {
+          const numRaw = data.row.raw[0];
+          const num = parseInt(numRaw, 10);
+          if (!isNaN(num) && num <= LIMITE_MEDALHA) {
             data.cell.styles.fillColor = [255, 248, 195];
             data.cell.styles.textColor = [100, 45, 0];
           }
@@ -617,21 +646,26 @@ async function carregarAdminUI() {
       doc.setPage(i);
       doc.setFontSize(7);
       doc.setTextColor(150, 150, 150);
-      doc.text(`Página ${i} de ${pageCount} • Ecociclismo Oficial`, pageWidth / 2, doc.internal.pageSize.getHeight() - 8, { align: "center" });
+      doc.text(
+        `Página ${i} de ${pageCount} • Ecociclismo Oficial`,
+        pageWidth / 2,
+        doc.internal.pageSize.getHeight() - 8,
+        { align: "center" }
+      );
     }
 
     doc.save("relatorio_ecociclismo_completo.pdf");
-    toast("Relatório completo gerado com sucesso! 🏅", "#2e7d32");
+    toast("Relatório completo gerado com sucesso!", "#2e7d32");
   });
 }
 
-// ========== EVENTOS E INICIALIZAÇÃO ==========
-document.getElementById("btnGerarInscricao").addEventListener("click", async () => {
+// ==================== EVENTOS E INICIALIZAÇÃO ====================
+
+document.getElementById("btnGerarInscricao")?.addEventListener("click", async () => {
   if (!validarFormulario()) return;
 
   const dados = {
     nome: document.getElementById("nome").value.trim(),
-    whatsapp: document.getElementById("whatsapp").value.trim(),
     cidade: document.getElementById("cidade").value.trim(),
     equipe: document.getElementById("equipe").value.trim(),
     idade: parseInt(document.getElementById("idade").value, 10),
@@ -646,10 +680,12 @@ document.getElementById("btnGerarInscricao").addEventListener("click", async () 
     const nova = await criarInscricaoGratuita(dados);
     await mostrarConfirmacao(nova);
 
-    ["nome", "whatsapp", "cidade", "equipe", "idade", "genero"].forEach(id => {
-      document.getElementById(id).value = "";
+    ["nome", "cidade", "equipe", "idade", "genero"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = "";
     });
-    toast("Inscrição gratuita realizada!", "#2e7d32");
+
+    toast("Inscrição gratuita realizada! Código gerado.", "#2e7d32");
   } catch (err) {
     toast("Erro: " + err.message, "#c0392b");
   } finally {
@@ -658,8 +694,9 @@ document.getElementById("btnGerarInscricao").addEventListener("click", async () 
   }
 });
 
-document.getElementById("btnLoginAdmin").addEventListener("click", async () => {
-  document.getElementById("loginErrorMsg").classList.add("hidden");
+document.getElementById("btnLoginAdmin")?.addEventListener("click", async () => {
+  const errorMsg = document.getElementById("loginErrorMsg");
+  if (errorMsg) errorMsg.classList.add("hidden");
   try {
     await signInWithEmailAndPassword(
       auth,
@@ -668,20 +705,24 @@ document.getElementById("btnLoginAdmin").addEventListener("click", async () => {
     );
     document.getElementById("modalLogin").classList.add("hidden");
   } catch {
-    document.getElementById("loginErrorMsg").classList.remove("hidden");
+    if (errorMsg) errorMsg.classList.remove("hidden");
   }
 });
 
 onAuthStateChanged(auth, user => {
   if (user) {
     adminLogado = true;
-    document.getElementById("tabAdminBtn").classList.remove("tab-hidden");
-    document.getElementById("adminLogoutContainer").style.display = "flex";
-    if (document.getElementById("panel-admin").classList.contains("ativo")) carregarAdminUI();
+    const tabAdminBtn = document.getElementById("tabAdminBtn");
+    const adminLogoutContainer = document.getElementById("adminLogoutContainer");
+    if (tabAdminBtn) tabAdminBtn.classList.remove("tab-hidden");
+    if (adminLogoutContainer) adminLogoutContainer.style.display = "flex";
+    if (document.getElementById("panel-admin")?.classList.contains("ativo")) carregarAdminUI();
   } else {
     adminLogado = false;
-    document.getElementById("tabAdminBtn").classList.add("tab-hidden");
-    document.getElementById("adminLogoutContainer").style.display = "none";
+    const tabAdminBtn = document.getElementById("tabAdminBtn");
+    const adminLogoutContainer = document.getElementById("adminLogoutContainer");
+    if (tabAdminBtn) tabAdminBtn.classList.add("tab-hidden");
+    if (adminLogoutContainer) adminLogoutContainer.style.display = "none";
     irParaTab("inscricao");
   }
 });
@@ -689,7 +730,8 @@ onAuthStateChanged(auth, user => {
 document.getElementById("btnSairAdmin")?.addEventListener("click", () => signOut(auth));
 document.getElementById("btnCancelarLogin")?.addEventListener("click", () => {
   document.getElementById("modalLogin").classList.add("hidden");
-  document.getElementById("loginErrorMsg").classList.add("hidden");
+  const errorMsg = document.getElementById("loginErrorMsg");
+  if (errorMsg) errorMsg.classList.add("hidden");
 });
 
 document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
@@ -703,6 +745,7 @@ document.querySelectorAll(".tab-btn[data-tab]").forEach(btn => {
   });
 });
 
+// Clique secreto no logo para abrir admin
 let clickCount = 0;
 let timeoutAdmin;
 document.getElementById("logoSecreto")?.addEventListener("click", () => {
@@ -724,22 +767,14 @@ document.getElementById("btnSaveEdit")?.addEventListener("click", async () => {
   const id = document.getElementById("editId").value;
   const novoNome = document.getElementById("editNome").value.trim();
   const novaEquipe = document.getElementById("editEquipe").value.trim();
-  const novoWhatsapp = document.getElementById("editWhatsapp").value.trim();
-  const campoWhatsapp = document.getElementById("editWhatsapp");
 
-  campoWhatsapp.classList.remove("erro");
   if (!novoNome) {
     toast("Nome não pode ficar vazio", "#c0392b");
     return;
   }
-  if (!whatsappValido(novoWhatsapp)) {
-    campoWhatsapp.classList.add("erro");
-    toast("Informe um WhatsApp válido", "#c0392b");
-    return;
-  }
 
   try {
-    await atualizarInscricao(id, novoNome, novaEquipe, novoWhatsapp);
+    await atualizarInscricao(id, novoNome, novaEquipe);
     toast("Dados atualizados!", "#15803d");
     document.getElementById("modalEdit").classList.add("hidden");
     carregarAdminUI();
